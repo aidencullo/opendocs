@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw Docs Chatbot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>OpenClaw Docs Chat</h1>
+      <p class="subtitle">RAG-powered chatbot for OpenClaw documentation</p>
+    </header>
+
+    <div id="api-key-section">
+      <label for="api-key">Anthropic API Key</label>
+      <div class="key-input-row">
+        <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+        <button id="save-key-btn">Save</button>
+      </div>
+      <p class="hint">Your key stays in your browser (localStorage). Never sent anywhere except the Anthropic API.</p>
+    </div>
+
+    <div id="chat-container">
+      <div id="messages">
+        <div class="message assistant">
+          <div class="message-content">
+            <p>Hi! I can answer questions about OpenClaw. Ask me about channels, plugins, configuration, the gateway, or anything else in the docs.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="input-area">
+        <textarea id="user-input" placeholder="Ask about OpenClaw..." rows="1"></textarea>
+        <button id="send-btn" title="Send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div id="status-bar">
+      <span id="index-status">Loading index...</span>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lunr@2.3.9/lunr.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

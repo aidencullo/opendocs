@@ -1,0 +1,12 @@
+{
+  "name": "openclaw-rag-chatbot",
+  "version": "1.0.0",
+  "description": "RAG chatbot for OpenClaw documentation",
+  "scripts": {
+    "build-index": "node build-index.js",
+    "build": "node build-index.js"
+  },
+  "dependencies": {
+    "lunr": "^2.3.9"
+  }
+}
