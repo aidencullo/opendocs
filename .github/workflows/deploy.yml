@@ -21,9 +21,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare deploy
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           mkdir -p _site
           cp index.html style.css app.js docs-index.json docs-chunks.json _site/
+          # Inject the API key into the built app.js (placeholder -> secret).
+          # Using a Python one-liner avoids sed escaping headaches with the key.
+          python3 -c "
+          import os, pathlib
+          p = pathlib.Path('_site/app.js')
+          key = os.environ['ANTHROPIC_API_KEY']
+          p.write_text(p.read_text().replace('__ANTHROPIC_API_KEY__', key))
+          "
 
       - uses: actions/upload-pages-artifact@v3
         with:

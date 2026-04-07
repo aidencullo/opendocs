@@ -5,6 +5,12 @@ let isReady = false;
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const TOP_K = 8;
 
+// Injected at deploy time by the GitHub Actions workflow.
+// Left as the placeholder string locally so nothing secret is committed.
+const BUILD_TIME_API_KEY = "__ANTHROPIC_API_KEY__";
+const HAS_BUILD_TIME_KEY =
+  BUILD_TIME_API_KEY && !BUILD_TIME_API_KEY.startsWith("__");
+
 // DOM elements
 const messagesEl = document.getElementById("messages");
 const userInput = document.getElementById("user-input");
@@ -12,6 +18,12 @@ const sendBtn = document.getElementById("send-btn");
 const apiKeyInput = document.getElementById("api-key");
 const saveKeyBtn = document.getElementById("save-key-btn");
 const statusEl = document.getElementById("index-status");
+
+// Hide the API key prompt entirely when a build-time key was injected.
+if (HAS_BUILD_TIME_KEY) {
+  const keySection = document.getElementById("api-key-section");
+  if (keySection) keySection.style.display = "none";
+}
 
 // Load API key from localStorage
 const savedKey = localStorage.getItem("anthropic_api_key");
@@ -77,7 +89,9 @@ function buildContext(chunks) {
 
 // Call Anthropic API
 async function callClaude(userMessage, context) {
-  const apiKey = localStorage.getItem("anthropic_api_key");
+  const apiKey = HAS_BUILD_TIME_KEY
+    ? BUILD_TIME_API_KEY
+    : localStorage.getItem("anthropic_api_key");
   if (!apiKey) {
     throw new Error("Please enter your Anthropic API key first.");
   }
