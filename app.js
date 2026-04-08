@@ -160,9 +160,15 @@ function addMessage(role, content, sources = null) {
 
   if (sources && sources.length > 0) {
     const uniquePaths = [...new Set(sources.map((s) => s.path))].slice(0, 5);
-    html += `<div class="sources">Sources: ${uniquePaths
-      .map((p) => `<a href="https://docs.openclaw.ai/${p.replace(/\.md$/, "").replace(/\/index$/, "")}" target="_blank">${p}</a>`)
-      .join(", ")}</div>`;
+    const linkIcon = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M7 7h10v10"/></svg>`;
+    const buttons = uniquePaths
+      .map((p) => {
+        const url = `https://docs.openclaw.ai/${p.replace(/\.md$/, "").replace(/\/index$/, "")}`;
+        const label = p.replace(/\.md$/, "").replace(/\/index$/, "");
+        return `<a href="${url}" target="_blank" rel="noopener">${label}${linkIcon}</a>`;
+      })
+      .join("");
+    html += `<div class="sources"><span class="sources-label">Sources</span>${buttons}</div>`;
   }
 
   div.innerHTML = html;
@@ -230,6 +236,21 @@ userInput.addEventListener("keydown", (e) => {
 userInput.addEventListener("input", () => {
   userInput.style.height = "auto";
   userInput.style.height = Math.min(userInput.scrollHeight, 120) + "px";
+});
+
+// Theme toggle
+const themeToggleBtn = document.getElementById("theme-toggle");
+const prefersLight =
+  window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+const savedTheme =
+  localStorage.getItem("theme") || (prefersLight ? "light" : "dark");
+document.documentElement.setAttribute("data-theme", savedTheme);
+
+themeToggleBtn.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
 });
 
 // Initialize
