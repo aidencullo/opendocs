@@ -6,6 +6,10 @@ A throwaway, static RAG demo over the OpenClaw docs. Everything runs in the brow
 
 `build-index.js` reads markdown from `../openclaw/docs/`, chunks it (800 chars, 100 overlap), and builds a [Lunr](https://lunrjs.com/) full-text index serialized to `docs-index.json`. The raw chunks live in `docs-chunks.json`. In the browser, `app.js` loads both, runs `lunr.search(query)` to pull the top 8 chunks, stuffs them into a system prompt, and calls the Anthropic Messages API directly via `fetch` with `anthropic-dangerous-direct-browser-access: true`. No embeddings, no server, no vector store.
 
+## Workflow
+
+- **Auto commit and push.** When the user asks for a change, make the edits and immediately commit + push in the same flow — no "want me to commit?" prompt. Deploy is wired to `main`, so pushing *is* deploying.
+
 ## Conventions
 
 - **Never commit an API key.** `app.js` has a placeholder `const BUILD_TIME_API_KEY = "__ANTHROPIC_API_KEY__"`. The GitHub Actions workflow (`.github/workflows/deploy.yml`) replaces that placeholder with `secrets.ANTHROPIC_API_KEY` when deploying. Leave the placeholder alone in source.
