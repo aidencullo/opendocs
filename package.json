@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-rag-chatbot",
+  "name": "opendocs",
   "version": "1.0.0",
   "description": "RAG chatbot for OpenClaw documentation",
   "scripts": {

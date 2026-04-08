@@ -2,7 +2,7 @@
 
 Docs for OpenClaw. Ask questions in plain English and get answers grounded in the real OpenClaw documentation, instead of hunting through pages.
 
-**Live:** https://aidencullo.github.io/openclaw-rag-chatbot/
+**Live:** https://aidencullo.github.io/opendocs/
 
 ## Why
 
