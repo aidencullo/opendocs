@@ -172,6 +172,14 @@ header h1 {
   overflow: hidden;
 }
 
+#chat-container.centered {
+  justify-content: center;
+}
+
+#chat-container.centered #messages {
+  display: none;
+}
+
 #messages {
   flex: 1;
   overflow-y: auto;

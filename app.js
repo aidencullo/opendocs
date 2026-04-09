@@ -248,6 +248,7 @@ async function handleSend() {
   userInput.style.height = "auto";
   sendBtn.disabled = true;
 
+  document.getElementById("chat-container").classList.remove("centered");
   addMessage("user", query);
 
   // Show thinking indicator
