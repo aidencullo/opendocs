@@ -3,6 +3,7 @@ let chunksMap = null;
 let isReady = false;
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 const TOP_K = 8;
 
 // Injected at deploy time by the GitHub Actions workflow.
@@ -10,6 +11,10 @@ const TOP_K = 8;
 const BUILD_TIME_API_KEY = "__ANTHROPIC_API_KEY__";
 const HAS_BUILD_TIME_KEY =
   BUILD_TIME_API_KEY && !BUILD_TIME_API_KEY.startsWith("__");
+
+const BUILD_TIME_GEMINI_KEY = "__GEMINI_API_KEY__";
+const HAS_GEMINI_KEY =
+  BUILD_TIME_GEMINI_KEY && !BUILD_TIME_GEMINI_KEY.startsWith("__");
 
 // DOM elements
 const messagesEl = document.getElementById("messages");
@@ -139,6 +144,56 @@ ${context}`;
   return data.content[0].text;
 }
 
+// Call Gemini API (fallback)
+async function callGemini(userMessage, context) {
+  const geminiKey = HAS_GEMINI_KEY
+    ? BUILD_TIME_GEMINI_KEY
+    : localStorage.getItem("gemini_api_key");
+  if (!geminiKey) {
+    throw new Error("Gemini fallback unavailable — no API key configured.");
+  }
+
+  const systemPrompt = `You are Open Docs, a helper bot whose job is to make setting up OpenClaw (a self-hosted AI gateway that connects messaging apps to AI agents) less annoying.
+
+Answer based ONLY on the provided documentation context. If the context doesn't contain enough information to answer, say so honestly.
+
+Style rules (strict):
+- No greetings. Never open with "Hey", "Hi", "Hello", "Welcome", or similar.
+- No emoji.
+- No "how can I help you today" menus or bulleted lists of options asking the user what they want.
+- No self-introduction. Do not say who you are or what you do.
+- Answer the question directly. If the user's message is vague, ask one short clarifying question — do not offer a menu of possibilities.
+- Keep answers concise and practical. Prefer step-by-step setup instructions when the user is trying to get something working.
+- Use markdown formatting. When referencing docs, mention the source path.
+
+Documentation context:
+${context}`;
+
+  const model = "gemini-2.0-flash";
+  const response = await fetch(
+    `${GEMINI_API_URL}/${model}:generateContent?key=${geminiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        generationConfig: { maxOutputTokens: 1024 },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(
+      err.error?.message || `Gemini API error: ${response.status}`
+    );
+  }
+
+  const data = await response.json();
+  return data.candidates[0].content.parts[0].text;
+}
+
 // Simple markdown rendering
 function renderMarkdown(text) {
   return text
@@ -215,8 +270,16 @@ async function handleSend() {
 
     const context = buildContext(chunks);
 
-    // Call Claude
-    const answer = await callClaude(query, context);
+    // Call Claude, fall back to Gemini if it fails
+    let answer;
+    try {
+      answer = await callClaude(query, context);
+    } catch (claudeErr) {
+      console.warn("Anthropic failed, trying Gemini fallback:", claudeErr.message);
+      thinkingDiv.querySelector(".message-content").textContent =
+        "Anthropic unavailable, trying backup...";
+      answer = await callGemini(query, context);
+    }
 
     thinkingDiv.remove();
     addMessage("assistant", answer, chunks);
