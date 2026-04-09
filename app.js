@@ -21,7 +21,7 @@ const BUILD_TIME_QWEN_KEY = "__QWEN_API_KEY__";
 const HAS_QWEN_KEY =
   BUILD_TIME_QWEN_KEY && !BUILD_TIME_QWEN_KEY.startsWith("__");
 
-let selectedModel = localStorage.getItem("selected_model") || "claude";
+let selectedModel = localStorage.getItem("selected_model") || "qwen";
 
 // DOM elements
 const messagesEl = document.getElementById("messages");
@@ -269,6 +269,7 @@ async function handleSend() {
   sendBtn.disabled = true;
 
   document.getElementById("chat-container").classList.remove("centered");
+  messagesEl.innerHTML = "";
   addMessage("user", query);
 
   // Show thinking indicator
