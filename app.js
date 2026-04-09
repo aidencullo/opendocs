@@ -111,7 +111,8 @@ Style rules (strict):
 - No self-introduction. Do not say who you are or what you do.
 - Answer the question directly. If the user's message is vague, ask one short clarifying question — do not offer a menu of possibilities.
 - Keep answers concise and practical. Prefer step-by-step setup instructions when the user is trying to get something working.
-- Use markdown formatting. When referencing docs, mention the source path.
+- Use markdown formatting.
+- Cite sources inline using [1], [2], etc. matching the source numbers provided. Place the citation right after the claim it supports. Only cite sources you actually use.
 
 Documentation context:
 ${context}`;
@@ -213,9 +214,21 @@ async function callQwen(userMessage, context) {
 const MODEL_CALLERS = { claude: callClaude, gemini: callGemini, qwen: callQwen };
 const MODEL_ORDER = ["claude", "gemini", "qwen"];
 
+// Build source URL map from chunks: { 1: { path, url }, 2: ... }
+function buildSourceMap(chunks) {
+  const map = {};
+  if (!chunks) return map;
+  chunks.forEach((c, i) => {
+    const path = c.path;
+    const url = `https://docs.openclaw.ai/${path.replace(/\.md$/, "").replace(/\/index$/, "")}`;
+    map[i + 1] = { path, url };
+  });
+  return map;
+}
+
 // Simple markdown rendering
-function renderMarkdown(text) {
-  return text
+function renderMarkdown(text, sourceMap) {
+  let result = text
     // Code blocks
     .replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
     // Inline code
@@ -225,8 +238,19 @@ function renderMarkdown(text) {
     // Italic
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-    // Line breaks to paragraphs
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // Inline citations: turn [1], [2] etc. into superscript links
+  if (sourceMap) {
+    result = result.replace(/\[(\d+)\]/g, (match, num) => {
+      const src = sourceMap[parseInt(num)];
+      if (!src) return match;
+      return `<a href="${src.url}" target="_blank" rel="noopener" class="cite" title="${src.path}">[${num}]</a>`;
+    });
+  }
+
+  // Line breaks to paragraphs
+  return result
     .split("\n\n")
     .map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`)
     .join("");
@@ -237,20 +261,22 @@ function addMessage(role, content, sources = null) {
   const div = document.createElement("div");
   div.className = `message ${role}`;
 
-  let html = `<div class="message-content">${renderMarkdown(content)}</div>`;
+  const sourceMap = buildSourceMap(sources);
+  let html = `<div class="message-content">${renderMarkdown(content, sourceMap)}</div>`;
 
-  // Only show sources if the answer is substantive (not just a clarifying question)
-  if (sources && sources.length > 0 && content.length > 150) {
-    const uniquePaths = [...new Set(sources.map((s) => s.path))].slice(0, 5);
-    const linkIcon = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M7 7h10v10"/></svg>`;
-    const buttons = uniquePaths
-      .map((p) => {
-        const url = `https://docs.openclaw.ai/${p.replace(/\.md$/, "").replace(/\/index$/, "")}`;
-        const label = p.replace(/\.md$/, "").replace(/\/index$/, "");
-        return `<a href="${url}" target="_blank" rel="noopener">${label}${linkIcon}</a>`;
+  // Show a compact source legend if the answer has inline citations
+  const citedNums = [...content.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1]));
+  const uniqueCited = [...new Set(citedNums)].filter((n) => sourceMap[n]).sort((a, b) => a - b);
+
+  if (uniqueCited.length > 0) {
+    const legend = uniqueCited
+      .map((n) => {
+        const s = sourceMap[n];
+        const label = s.path.replace(/\.md$/, "").replace(/\/index$/, "");
+        return `<a href="${s.url}" target="_blank" rel="noopener">[${n}] ${label}</a>`;
       })
       .join("");
-    html += `<div class="sources"><span class="sources-label">Sources</span>${buttons}</div>`;
+    html += `<div class="sources">${legend}</div>`;
   }
 
   div.innerHTML = html;
