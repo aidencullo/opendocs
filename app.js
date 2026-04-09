@@ -273,15 +273,28 @@ async function handleSend() {
   messagesEl.innerHTML = "";
   addMessage("user", query);
 
-  // Show thinking indicator
-  const thinkingDiv = addMessage("assistant", "Searching docs and thinking");
-  thinkingDiv.querySelector(".message-content").classList.add("thinking");
+  // Show thinking indicator with rotating phrases
+  const thinkingPhrases = [
+    "Searching docs",
+    "Reading through the results",
+    "Putting it together",
+    "Almost there",
+  ];
+  const thinkingDiv = addMessage("assistant", thinkingPhrases[0]);
+  const thinkingContent = thinkingDiv.querySelector(".message-content");
+  thinkingContent.classList.add("thinking");
+  let phraseIndex = 0;
+  const phraseInterval = setInterval(() => {
+    phraseIndex = (phraseIndex + 1) % thinkingPhrases.length;
+    thinkingContent.textContent = thinkingPhrases[phraseIndex];
+  }, 2000);
 
   try {
     // Retrieve relevant chunks
     const chunks = retrieveContext(query);
 
     if (chunks.length === 0) {
+      clearInterval(phraseInterval);
       thinkingDiv.remove();
       addMessage(
         "assistant",
@@ -311,6 +324,7 @@ async function handleSend() {
       }
     }
 
+    clearInterval(phraseInterval);
     thinkingDiv.remove();
     if (answer) {
       addMessage("assistant", answer, chunks);
@@ -320,6 +334,7 @@ async function handleSend() {
     }
   } catch (err) {
     console.error("Unexpected error:", err.message);
+    clearInterval(phraseInterval);
     thinkingDiv.remove();
     addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
   }
