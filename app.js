@@ -285,8 +285,9 @@ async function handleSend() {
     thinkingDiv.remove();
     addMessage("assistant", answer, chunks);
   } catch (err) {
+    console.error("All providers failed:", err.message);
     thinkingDiv.remove();
-    addMessage("assistant", `Error: ${err.message}`);
+    addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
   }
 
   sendBtn.disabled = false;
