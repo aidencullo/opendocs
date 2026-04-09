@@ -252,7 +252,7 @@ async function handleSend() {
   addMessage("user", query);
 
   // Show thinking indicator
-  const thinkingDiv = addMessage("assistant", "Searching docs and thinking...");
+  const thinkingDiv = addMessage("assistant", "Searching docs and thinking");
   thinkingDiv.querySelector(".message-content").classList.add("thinking");
 
   try {
@@ -278,7 +278,7 @@ async function handleSend() {
     } catch (claudeErr) {
       console.warn("Anthropic failed, trying Gemini fallback:", claudeErr.message);
       thinkingDiv.querySelector(".message-content").textContent =
-        "Anthropic unavailable, trying backup...";
+        "Anthropic unavailable, trying backup";
       answer = await callGemini(query, context);
     }
 
