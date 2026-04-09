@@ -268,6 +268,7 @@ async function handleSend() {
   userInput.style.height = "auto";
   sendBtn.disabled = true;
 
+  document.getElementById("app").classList.remove("landing");
   document.getElementById("chat-container").classList.remove("centered");
   messagesEl.innerHTML = "";
   addMessage("user", query);
