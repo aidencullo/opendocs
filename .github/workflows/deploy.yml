@@ -24,6 +24,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
           mkdir -p _site
           cp index.html style.css app.js docs-index.json docs-chunks.json _site/
@@ -35,6 +36,7 @@ jobs:
           text = p.read_text()
           text = text.replace('__ANTHROPIC_API_KEY__', os.environ['ANTHROPIC_API_KEY'])
           text = text.replace('__GEMINI_API_KEY__', os.environ.get('GEMINI_API_KEY', ''))
+          text = text.replace('__QWEN_API_KEY__', os.environ.get('QWEN_API_KEY', ''))
           p.write_text(text)
           "
 

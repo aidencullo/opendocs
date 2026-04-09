@@ -4,6 +4,7 @@ let isReady = false;
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const QWEN_API_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions";
 const TOP_K = 8;
 
 // Injected at deploy time by the GitHub Actions workflow.
@@ -15,6 +16,12 @@ const HAS_BUILD_TIME_KEY =
 const BUILD_TIME_GEMINI_KEY = "__GEMINI_API_KEY__";
 const HAS_GEMINI_KEY =
   BUILD_TIME_GEMINI_KEY && !BUILD_TIME_GEMINI_KEY.startsWith("__");
+
+const BUILD_TIME_QWEN_KEY = "__QWEN_API_KEY__";
+const HAS_QWEN_KEY =
+  BUILD_TIME_QWEN_KEY && !BUILD_TIME_QWEN_KEY.startsWith("__");
+
+let selectedModel = localStorage.getItem("selected_model") || "claude";
 
 // DOM elements
 const messagesEl = document.getElementById("messages");
@@ -92,16 +99,8 @@ function buildContext(chunks) {
     .join("\n\n");
 }
 
-// Call Anthropic API
-async function callClaude(userMessage, context) {
-  const apiKey = HAS_BUILD_TIME_KEY
-    ? BUILD_TIME_API_KEY
-    : localStorage.getItem("anthropic_api_key");
-  if (!apiKey) {
-    throw new Error("Please enter your Anthropic API key first.");
-  }
-
-  const systemPrompt = `You are Open Docs, a helper bot whose job is to make setting up OpenClaw (a self-hosted AI gateway that connects messaging apps to AI agents) less annoying.
+function buildSystemPrompt(context) {
+  return `You are Open Docs, a helper bot whose job is to make setting up OpenClaw (a self-hosted AI gateway that connects messaging apps to AI agents) less annoying.
 
 Answer based ONLY on the provided documentation context. If the context doesn't contain enough information to answer, say so honestly.
 
@@ -116,6 +115,14 @@ Style rules (strict):
 
 Documentation context:
 ${context}`;
+}
+
+// Call Anthropic API
+async function callClaude(userMessage, context) {
+  const apiKey = HAS_BUILD_TIME_KEY
+    ? BUILD_TIME_API_KEY
+    : localStorage.getItem("anthropic_api_key");
+  if (!apiKey) throw new Error("No Claude API key configured.");
 
   const response = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
@@ -128,55 +135,34 @@ ${context}`;
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
-      system: systemPrompt,
+      system: buildSystemPrompt(context),
       messages: [{ role: "user", content: userMessage }],
     }),
   });
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(
-      err.error?.message || `API error: ${response.status}`
-    );
+    throw new Error(err.error?.message || `API error: ${response.status}`);
   }
 
   const data = await response.json();
   return data.content[0].text;
 }
 
-// Call Gemini API (fallback)
+// Call Gemini API
 async function callGemini(userMessage, context) {
   const geminiKey = HAS_GEMINI_KEY
     ? BUILD_TIME_GEMINI_KEY
     : localStorage.getItem("gemini_api_key");
-  if (!geminiKey) {
-    throw new Error("Gemini fallback unavailable — no API key configured.");
-  }
+  if (!geminiKey) throw new Error("No Gemini API key configured.");
 
-  const systemPrompt = `You are Open Docs, a helper bot whose job is to make setting up OpenClaw (a self-hosted AI gateway that connects messaging apps to AI agents) less annoying.
-
-Answer based ONLY on the provided documentation context. If the context doesn't contain enough information to answer, say so honestly.
-
-Style rules (strict):
-- No greetings. Never open with "Hey", "Hi", "Hello", "Welcome", or similar.
-- No emoji.
-- No "how can I help you today" menus or bulleted lists of options asking the user what they want.
-- No self-introduction. Do not say who you are or what you do.
-- Answer the question directly. If the user's message is vague, ask one short clarifying question — do not offer a menu of possibilities.
-- Keep answers concise and practical. Prefer step-by-step setup instructions when the user is trying to get something working.
-- Use markdown formatting. When referencing docs, mention the source path.
-
-Documentation context:
-${context}`;
-
-  const model = "gemini-2.0-flash";
   const response = await fetch(
-    `${GEMINI_API_URL}/${model}:generateContent?key=${geminiKey}`,
+    `${GEMINI_API_URL}/gemini-2.0-flash:generateContent?key=${geminiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
+        system_instruction: { parts: [{ text: buildSystemPrompt(context) }] },
         contents: [{ role: "user", parts: [{ text: userMessage }] }],
         generationConfig: { maxOutputTokens: 1024 },
       }),
@@ -185,14 +171,47 @@ ${context}`;
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(
-      err.error?.message || `Gemini API error: ${response.status}`
-    );
+    throw new Error(err.error?.message || `API error: ${response.status}`);
   }
 
   const data = await response.json();
   return data.candidates[0].content.parts[0].text;
 }
+
+// Call Qwen API (DashScope, OpenAI-compatible)
+async function callQwen(userMessage, context) {
+  const qwenKey = HAS_QWEN_KEY
+    ? BUILD_TIME_QWEN_KEY
+    : localStorage.getItem("qwen_api_key");
+  if (!qwenKey) throw new Error("No Qwen API key configured.");
+
+  const response = await fetch(QWEN_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${qwenKey}`,
+    },
+    body: JSON.stringify({
+      model: "qwen-plus",
+      max_tokens: 1024,
+      messages: [
+        { role: "system", content: buildSystemPrompt(context) },
+        { role: "user", content: userMessage },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+const MODEL_CALLERS = { claude: callClaude, gemini: callGemini, qwen: callQwen };
+const MODEL_ORDER = ["claude", "gemini", "qwen"];
 
 // Simple markdown rendering
 function renderMarkdown(text) {
@@ -271,21 +290,33 @@ async function handleSend() {
 
     const context = buildContext(chunks);
 
-    // Call Claude, fall back to Gemini if it fails
+    // Try selected model first, then fall back through others
+    const fallbackOrder = [selectedModel, ...MODEL_ORDER.filter((m) => m !== selectedModel)];
     let answer;
-    try {
-      answer = await callClaude(query, context);
-    } catch (claudeErr) {
-      console.warn("Anthropic failed, trying Gemini fallback:", claudeErr.message);
-      thinkingDiv.querySelector(".message-content").textContent =
-        "Anthropic unavailable, trying backup";
-      answer = await callGemini(query, context);
+    let lastErr;
+    for (const model of fallbackOrder) {
+      try {
+        answer = await MODEL_CALLERS[model](query, context);
+        break;
+      } catch (err) {
+        console.warn(`${model} failed:`, err.message);
+        lastErr = err;
+        if (model === selectedModel) {
+          thinkingDiv.querySelector(".message-content").textContent =
+            "Trying backup";
+        }
+      }
     }
 
     thinkingDiv.remove();
-    addMessage("assistant", answer, chunks);
+    if (answer) {
+      addMessage("assistant", answer, chunks);
+    } else {
+      console.error("All providers failed:", lastErr?.message);
+      addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
+    }
   } catch (err) {
-    console.error("All providers failed:", err.message);
+    console.error("Unexpected error:", err.message);
     thinkingDiv.remove();
     addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
   }
@@ -323,6 +354,22 @@ themeToggleBtn.addEventListener("click", () => {
   const next = current === "light" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem("theme", next);
+});
+
+// Model selector
+const modelBtns = document.querySelectorAll(".model-btn");
+modelBtns.forEach((btn) => {
+  if (btn.dataset.model === selectedModel) {
+    btn.classList.add("active");
+  } else {
+    btn.classList.remove("active");
+  }
+  btn.addEventListener("click", () => {
+    modelBtns.forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    selectedModel = btn.dataset.model;
+    localStorage.setItem("selected_model", selectedModel);
+  });
 });
 
 // Initialize

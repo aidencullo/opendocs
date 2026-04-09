@@ -105,6 +105,41 @@ header h1 {
   display: none;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#model-selector {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.model-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.model-btn:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.model-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
 .subtitle {
   color: var(--text-muted);
   font-size: 0.85rem;
