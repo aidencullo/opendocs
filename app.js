@@ -273,44 +273,29 @@ async function handleSend() {
   messagesEl.innerHTML = "";
   addMessage("user", query);
 
-  // Show thinking indicator with random quotes
-  const thinkingPhrases = [
-    "The only true wisdom is in knowing you know nothing. — Socrates",
-    "It does not do to dwell on dreams and forget to live. — Dumbledore",
-    "Not all those who wander are lost. — J.R.R. Tolkien",
-    "The unexamined life is not worth living. — Socrates",
-    "To be yourself in a world that is constantly trying to make you something else is the greatest accomplishment. — Ralph Waldo Emerson",
-    "In the middle of difficulty lies opportunity. — Albert Einstein",
-    "The best time to plant a tree was 20 years ago. The second best time is now. — Chinese proverb",
-    "We are what we repeatedly do. Excellence, then, is not an act, but a habit. — Aristotle",
-    "Everything you can imagine is real. — Pablo Picasso",
-    "The mind is everything. What you think you become. — Buddha",
-    "It is during our darkest moments that we must focus to see the light. — Aristotle",
-    "Knowing is not enough; we must apply. Willing is not enough; we must do. — Goethe",
-    "The only way to do great work is to love what you do. — Steve Jobs",
-    "Simplicity is the ultimate sophistication. — Leonardo da Vinci",
-    "Life is what happens when you're busy making other plans. — John Lennon",
-    "Stay hungry, stay foolish. — Stewart Brand",
-    "What we know is a drop, what we don't know is an ocean. — Isaac Newton",
-    "He who has a why to live can bear almost any how. — Nietzsche",
-    "The world is a book and those who do not travel read only one page. — Augustine",
-    "Imagination is more important than knowledge. — Albert Einstein",
-    "A room without books is like a body without a soul. — Cicero",
-    "Turn your wounds into wisdom. — Oprah Winfrey",
-    "The journey of a thousand miles begins with one step. — Lao Tzu",
-    "Do what you can, with what you have, where you are. — Theodore Roosevelt",
-    "Act as if what you do makes a difference. It does. — William James",
-  ];
-  // Shuffle so we don't repeat the same order each time
-  const shuffled = thinkingPhrases.sort(() => Math.random() - 0.5);
-  const thinkingDiv = addMessage("assistant", shuffled[0]);
+  // Show thinking indicator with quotes fetched from API
+  const thinkingDiv = addMessage("assistant", "Thinking...");
   const thinkingContent = thinkingDiv.querySelector(".message-content");
   thinkingContent.classList.add("thinking");
-  let phraseIndex = 0;
-  const phraseInterval = setInterval(() => {
-    phraseIndex = (phraseIndex + 1) % shuffled.length;
-    thinkingContent.textContent = shuffled[phraseIndex];
-  }, 3000);
+
+  async function fetchQuote() {
+    try {
+      const res = await fetch("https://api.quotable.io/quotes/random?limit=1");
+      if (!res.ok) return null;
+      const data = await res.json();
+      return `${data[0].content} — ${data[0].author}`;
+    } catch {
+      return null;
+    }
+  }
+
+  // Show first quote immediately
+  fetchQuote().then((q) => { if (q) thinkingContent.textContent = q; });
+
+  const phraseInterval = setInterval(async () => {
+    const q = await fetchQuote();
+    if (q) thinkingContent.textContent = q;
+  }, 4000);
 
   try {
     // Retrieve relevant chunks
