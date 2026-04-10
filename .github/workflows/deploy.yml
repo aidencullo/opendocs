@@ -27,7 +27,7 @@ jobs:
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
           mkdir -p _site
-          cp index.html style.css app.js docs-index.json docs-chunks.json _site/
+          cp index.html style.css app.js docs-index.json docs-chunks.json lobster.svg _site/
           # Inject API keys into the built app.js (placeholders -> secrets).
           # Using a Python one-liner avoids sed escaping headaches with the keys.
           python3 -c "
