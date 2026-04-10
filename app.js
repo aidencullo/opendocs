@@ -22,6 +22,9 @@ const HAS_QWEN_KEY =
   BUILD_TIME_QWEN_KEY && !BUILD_TIME_QWEN_KEY.startsWith("__");
 
 let selectedModel = localStorage.getItem("selected_model") || "qwen";
+let currentAbort = null;
+let currentPhraseInterval = null;
+let currentThinkingDiv = null;
 
 // DOM elements
 const messagesEl = document.getElementById("messages");
@@ -119,13 +122,14 @@ ${context}`;
 }
 
 // Call Anthropic API
-async function callClaude(userMessage, context) {
+async function callClaude(userMessage, context, signal) {
   const apiKey = HAS_BUILD_TIME_KEY
     ? BUILD_TIME_API_KEY
     : localStorage.getItem("anthropic_api_key");
   if (!apiKey) throw new Error("No Claude API key configured.");
 
   const response = await fetch(ANTHROPIC_API_URL, {
+    signal,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -151,7 +155,7 @@ async function callClaude(userMessage, context) {
 }
 
 // Call Gemini API
-async function callGemini(userMessage, context) {
+async function callGemini(userMessage, context, signal) {
   const geminiKey = HAS_GEMINI_KEY
     ? BUILD_TIME_GEMINI_KEY
     : localStorage.getItem("gemini_api_key");
@@ -160,6 +164,7 @@ async function callGemini(userMessage, context) {
   const response = await fetch(
     `${GEMINI_API_URL}/gemini-2.0-flash:generateContent?key=${geminiKey}`,
     {
+      signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -180,13 +185,14 @@ async function callGemini(userMessage, context) {
 }
 
 // Call Qwen API (DashScope, OpenAI-compatible)
-async function callQwen(userMessage, context) {
+async function callQwen(userMessage, context, signal) {
   const qwenKey = HAS_QWEN_KEY
     ? BUILD_TIME_QWEN_KEY
     : localStorage.getItem("qwen_api_key");
   if (!qwenKey) throw new Error("No Qwen API key configured.");
 
   const response = await fetch(QWEN_API_URL, {
+    signal,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -292,17 +298,26 @@ async function handleSend() {
   const query = userInput.value.trim();
   if (!query || !isReady) return;
 
+  // Cancel any in-flight request
+  if (currentAbort) {
+    currentAbort.abort();
+    clearInterval(currentPhraseInterval);
+    if (currentThinkingDiv) currentThinkingDiv.remove();
+  }
+  const abort = new AbortController();
+  currentAbort = abort;
+
   userInput.value = "";
   userInput.style.height = "auto";
   sendBtn.disabled = true;
 
   document.getElementById("app").classList.remove("landing");
   document.getElementById("chat-container").classList.remove("centered");
-  messagesEl.innerHTML = "";
   addMessage("user", query);
 
   // Show thinking indicator with quotes fetched from API
-  const thinkingDiv = addMessage("assistant", "Thinking...");
+  currentThinkingDiv = addMessage("assistant", "Thinking...");
+  const thinkingDiv = currentThinkingDiv;
   const thinkingContent = thinkingDiv.querySelector(".message-content");
   thinkingContent.classList.add("thinking");
 
@@ -318,12 +333,13 @@ async function handleSend() {
   }
 
   // Show first quote immediately
-  fetchQuote().then((q) => { if (q) thinkingContent.textContent = q; });
+  fetchQuote().then((q) => { if (q && !abort.signal.aborted) thinkingContent.textContent = q; });
 
-  const phraseInterval = setInterval(async () => {
+  currentPhraseInterval = setInterval(async () => {
     const q = await fetchQuote();
-    if (q) thinkingContent.textContent = q;
+    if (q && !abort.signal.aborted) thinkingContent.textContent = q;
   }, 4000);
+  const phraseInterval = currentPhraseInterval;
 
   try {
     // Retrieve relevant chunks
@@ -348,9 +364,10 @@ async function handleSend() {
     let lastErr;
     for (const model of fallbackOrder) {
       try {
-        answer = await MODEL_CALLERS[model](query, context);
+        answer = await MODEL_CALLERS[model](query, context, abort.signal);
         break;
       } catch (err) {
+        if (err.name === "AbortError") return;
         console.warn(`${model} failed:`, err.message);
         lastErr = err;
         if (model === selectedModel) {
@@ -360,7 +377,10 @@ async function handleSend() {
       }
     }
 
+    if (abort.signal.aborted) return;
+
     clearInterval(phraseInterval);
+    currentThinkingDiv = null;
     thinkingDiv.remove();
     if (answer) {
       addMessage("assistant", answer, chunks);
@@ -369,12 +389,15 @@ async function handleSend() {
       addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
     }
   } catch (err) {
+    if (err.name === "AbortError" || abort.signal.aborted) return;
     console.error("Unexpected error:", err.message);
     clearInterval(phraseInterval);
+    currentThinkingDiv = null;
     thinkingDiv.remove();
     addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
   }
 
+  currentAbort = null;
   sendBtn.disabled = false;
   userInput.focus();
 }
