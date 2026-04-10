@@ -21,7 +21,11 @@ const BUILD_TIME_QWEN_KEY = "__QWEN_API_KEY__";
 const HAS_QWEN_KEY =
   BUILD_TIME_QWEN_KEY && !BUILD_TIME_QWEN_KEY.startsWith("__");
 
-let selectedModel = localStorage.getItem("selected_model") || "qwen";
+const storedModel = localStorage.getItem("selected_model");
+let selectedModel = storedModel === "qwen" ? "claude" : (storedModel || "claude");
+if (selectedModel !== storedModel) {
+  localStorage.setItem("selected_model", selectedModel);
+}
 let currentAbort = null;
 let currentPhraseInterval = null;
 let currentThinkingDiv = null;
@@ -182,7 +186,7 @@ async function callClaude(userMessage, context, signal, attachments) {
       "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-3-5-haiku-20241022",
       max_tokens: 1024,
       system: buildSystemPrompt(context),
       messages: [{ role: "user", content }],

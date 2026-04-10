@@ -53,6 +53,7 @@ body {
   flex-direction: column;
   height: 100vh;
   padding: 0 16px;
+  position: relative;
 }
 
 header {
@@ -455,6 +456,16 @@ header h1 {
   text-align: center;
 }
 
+#default-model-note {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
 /* Scrollbar */
 #messages::-webkit-scrollbar {
   width: 6px;
@@ -475,5 +486,8 @@ header h1 {
   }
   header h1 {
     font-size: 1.25rem;
+  }
+  #default-model-note {
+    right: 12px;
   }
 }
