@@ -325,10 +325,87 @@ header h1 {
   font-style: italic;
 }
 
+#attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+}
+
+#attachments:empty {
+  display: none;
+}
+
+.attachment-preview {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.attachment-preview img {
+  display: block;
+  max-height: 80px;
+  max-width: 120px;
+  object-fit: cover;
+}
+
+.attachment-preview .file-label {
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview .remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 #input-area {
   display: flex;
   gap: 8px;
   padding: 16px 0;
+  align-items: center;
+}
+
+#input-area.drag-over #user-input {
+  border-color: var(--accent);
+  background: var(--source-bg);
+}
+
+#attach-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+#attach-btn:hover {
+  color: var(--accent);
 }
 
 #user-input {

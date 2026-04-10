@@ -25,6 +25,7 @@ let selectedModel = localStorage.getItem("selected_model") || "qwen";
 let currentAbort = null;
 let currentPhraseInterval = null;
 let currentThinkingDiv = null;
+let pendingAttachments = []; // { name, type, base64, dataUrl }
 
 // DOM elements
 const messagesEl = document.getElementById("messages");
@@ -122,11 +123,20 @@ ${context}`;
 }
 
 // Call Anthropic API
-async function callClaude(userMessage, context, signal) {
+async function callClaude(userMessage, context, signal, attachments) {
   const apiKey = HAS_BUILD_TIME_KEY
     ? BUILD_TIME_API_KEY
     : localStorage.getItem("anthropic_api_key");
   if (!apiKey) throw new Error("No Claude API key configured.");
+
+  // Build content array with text + images
+  const content = [];
+  for (const att of attachments) {
+    if (att.type.startsWith("image/")) {
+      content.push({ type: "image", source: { type: "base64", media_type: att.type, data: att.base64 } });
+    }
+  }
+  content.push({ type: "text", text: userMessage });
 
   const response = await fetch(ANTHROPIC_API_URL, {
     signal,
@@ -141,7 +151,7 @@ async function callClaude(userMessage, context, signal) {
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
       system: buildSystemPrompt(context),
-      messages: [{ role: "user", content: userMessage }],
+      messages: [{ role: "user", content }],
     }),
   });
 
@@ -155,11 +165,20 @@ async function callClaude(userMessage, context, signal) {
 }
 
 // Call Gemini API
-async function callGemini(userMessage, context, signal) {
+async function callGemini(userMessage, context, signal, attachments) {
   const geminiKey = HAS_GEMINI_KEY
     ? BUILD_TIME_GEMINI_KEY
     : localStorage.getItem("gemini_api_key");
   if (!geminiKey) throw new Error("No Gemini API key configured.");
+
+  // Build parts array with images + text
+  const parts = [];
+  for (const att of attachments) {
+    if (att.type.startsWith("image/")) {
+      parts.push({ inline_data: { mime_type: att.type, data: att.base64 } });
+    }
+  }
+  parts.push({ text: userMessage });
 
   const response = await fetch(
     `${GEMINI_API_URL}/gemini-2.0-flash:generateContent?key=${geminiKey}`,
@@ -169,7 +188,7 @@ async function callGemini(userMessage, context, signal) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: buildSystemPrompt(context) }] },
-        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        contents: [{ role: "user", parts }],
         generationConfig: { maxOutputTokens: 1024 },
       }),
     }
@@ -185,11 +204,20 @@ async function callGemini(userMessage, context, signal) {
 }
 
 // Call Qwen API (DashScope, OpenAI-compatible)
-async function callQwen(userMessage, context, signal) {
+async function callQwen(userMessage, context, signal, attachments) {
   const qwenKey = HAS_QWEN_KEY
     ? BUILD_TIME_QWEN_KEY
     : localStorage.getItem("qwen_api_key");
   if (!qwenKey) throw new Error("No Qwen API key configured.");
+
+  // Build content array with images + text
+  const content = [];
+  for (const att of attachments) {
+    if (att.type.startsWith("image/")) {
+      content.push({ type: "image_url", image_url: { url: `data:${att.type};base64,${att.base64}` } });
+    }
+  }
+  content.push({ type: "text", text: userMessage });
 
   const response = await fetch(QWEN_API_URL, {
     signal,
@@ -199,11 +227,11 @@ async function callQwen(userMessage, context, signal) {
       "Authorization": `Bearer ${qwenKey}`,
     },
     body: JSON.stringify({
-      model: "qwen-plus",
+      model: "qwen-vl-plus",
       max_tokens: 1024,
       messages: [
         { role: "system", content: buildSystemPrompt(context) },
-        { role: "user", content: userMessage },
+        { role: "user", content: attachments.length > 0 ? content : userMessage },
       ],
     }),
   });
@@ -307,12 +335,27 @@ async function handleSend() {
   const abort = new AbortController();
   currentAbort = abort;
 
+  // Grab and clear attachments
+  const attachments = [...pendingAttachments];
+  pendingAttachments = [];
+  document.getElementById("attachments").innerHTML = "";
+
   userInput.value = "";
   sendBtn.disabled = true;
 
   document.getElementById("app").classList.remove("landing");
   document.getElementById("chat-container").classList.remove("centered");
-  addMessage("user", query);
+
+  // Show user message with image previews
+  let userHtml = query;
+  if (attachments.length > 0) {
+    const imgs = attachments
+      .filter((a) => a.type.startsWith("image/"))
+      .map((a) => `![${a.name}](${a.dataUrl})`)
+      .join("\n");
+    if (imgs) userHtml = imgs + "\n\n" + query;
+  }
+  addMessage("user", userHtml);
 
   // Show thinking indicator with quotes fetched from API
   currentThinkingDiv = addMessage("assistant", "Thinking...");
@@ -363,7 +406,7 @@ async function handleSend() {
     let lastErr;
     for (const model of fallbackOrder) {
       try {
-        answer = await MODEL_CALLERS[model](query, context, abort.signal);
+        answer = await MODEL_CALLERS[model](query, context, abort.signal, attachments);
         break;
       } catch (err) {
         if (err.name === "AbortError") return;
@@ -441,6 +484,81 @@ modelBtns.forEach((btn) => {
     selectedModel = btn.dataset.model;
     localStorage.setItem("selected_model", selectedModel);
   });
+});
+
+// File attachments
+const attachBtn = document.getElementById("attach-btn");
+const fileInput = document.getElementById("file-input");
+const attachmentsEl = document.getElementById("attachments");
+const inputArea = document.getElementById("input-area");
+
+function readFileAsBase64(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const base64 = dataUrl.split(",")[1];
+      resolve({ name: file.name, type: file.type, base64, dataUrl });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderAttachmentPreview(att) {
+  const div = document.createElement("div");
+  div.className = "attachment-preview";
+
+  if (att.type.startsWith("image/")) {
+    div.innerHTML = `<img src="${att.dataUrl}" alt="${att.name}"><button class="remove-btn">&times;</button>`;
+  } else {
+    div.innerHTML = `<div class="file-label">${att.name}</div><button class="remove-btn">&times;</button>`;
+  }
+
+  div.querySelector(".remove-btn").addEventListener("click", () => {
+    pendingAttachments = pendingAttachments.filter((a) => a !== att);
+    div.remove();
+  });
+
+  attachmentsEl.appendChild(div);
+}
+
+async function addFiles(files) {
+  for (const file of files) {
+    const att = await readFileAsBase64(file);
+    pendingAttachments.push(att);
+    renderAttachmentPreview(att);
+  }
+}
+
+attachBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) addFiles(fileInput.files);
+  fileInput.value = "";
+});
+
+// Drag and drop
+inputArea.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  inputArea.classList.add("drag-over");
+});
+
+inputArea.addEventListener("dragleave", () => {
+  inputArea.classList.remove("drag-over");
+});
+
+inputArea.addEventListener("drop", (e) => {
+  e.preventDefault();
+  inputArea.classList.remove("drag-over");
+  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+});
+
+// Also support paste
+userInput.addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) {
+    e.preventDefault();
+    addFiles(files);
+  }
 });
 
 // Initialize
