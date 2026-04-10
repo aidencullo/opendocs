@@ -3,8 +3,6 @@ let chunksMap = null;
 let isReady = false;
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
-const QWEN_API_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions";
 const TOP_K = 8;
 
 // Injected at deploy time by the GitHub Actions workflow.
@@ -13,19 +11,6 @@ const BUILD_TIME_API_KEY = "__ANTHROPIC_API_KEY__";
 const HAS_BUILD_TIME_KEY =
   BUILD_TIME_API_KEY && !BUILD_TIME_API_KEY.startsWith("__");
 
-const BUILD_TIME_GEMINI_KEY = "__GEMINI_API_KEY__";
-const HAS_GEMINI_KEY =
-  BUILD_TIME_GEMINI_KEY && !BUILD_TIME_GEMINI_KEY.startsWith("__");
-
-const BUILD_TIME_QWEN_KEY = "__QWEN_API_KEY__";
-const HAS_QWEN_KEY =
-  BUILD_TIME_QWEN_KEY && !BUILD_TIME_QWEN_KEY.startsWith("__");
-
-const storedModel = localStorage.getItem("selected_model");
-let selectedModel = storedModel === "qwen" ? "claude" : (storedModel || "claude");
-if (selectedModel !== storedModel) {
-  localStorage.setItem("selected_model", selectedModel);
-}
 let currentAbort = null;
 let currentPhraseInterval = null;
 let currentThinkingDiv = null;
@@ -36,59 +21,30 @@ const messagesEl = document.getElementById("messages");
 const userInput = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const apiKeyInput = document.getElementById("api-key");
-const apiKeyLabel = document.getElementById("api-key-label");
 const apiKeyHint = document.getElementById("api-key-hint");
 const saveKeyBtn = document.getElementById("save-key-btn");
 const statusEl = document.getElementById("index-status");
 
-const MODEL_CONFIG = {
-  claude: {
-    storageKey: "anthropic_api_key",
-    label: "Anthropic API Key",
-    placeholder: "sk-ant-...",
-    hint: "Stored in your browser and only sent to Anthropic.",
-    hasBuildTimeKey: HAS_BUILD_TIME_KEY,
-  },
-  gemini: {
-    storageKey: "gemini_api_key",
-    label: "Gemini API Key",
-    placeholder: "AIza...",
-    hint: "Stored in your browser and only sent to Google Gemini.",
-    hasBuildTimeKey: HAS_GEMINI_KEY,
-  },
-  qwen: {
-    storageKey: "qwen_api_key",
-    label: "Qwen API Key",
-    placeholder: "sk-...",
-    hint: "Stored in your browser and only sent to DashScope/Qwen.",
-    hasBuildTimeKey: HAS_QWEN_KEY,
-  },
-};
-
 function syncKeyUI() {
-  const config = MODEL_CONFIG[selectedModel];
   const keySection = document.getElementById("api-key-section");
-  if (!config || !keySection) return;
+  if (!keySection) return;
 
-  apiKeyLabel.textContent = config.label;
-  apiKeyInput.placeholder = config.placeholder;
-  apiKeyHint.textContent = config.hasBuildTimeKey
-    ? `${config.label} is already configured for this deployment.`
-    : config.hint;
-  apiKeyInput.value = config.hasBuildTimeKey
-    ? ""
-    : (localStorage.getItem(config.storageKey) || "");
-  keySection.style.display = config.hasBuildTimeKey ? "none" : "block";
+  if (HAS_BUILD_TIME_KEY) {
+    keySection.style.display = "none";
+    return;
+  }
+
+  apiKeyHint.textContent = "Stored in your browser and only sent to Anthropic.";
+  apiKeyInput.value = localStorage.getItem("anthropic_api_key") || "";
+  keySection.style.display = "block";
 }
 
 syncKeyUI();
 
 saveKeyBtn.addEventListener("click", () => {
   const key = apiKeyInput.value.trim();
-  const config = MODEL_CONFIG[selectedModel];
-  if (!config) return;
   if (key) {
-    localStorage.setItem(config.storageKey, key);
+    localStorage.setItem("anthropic_api_key", key);
     apiKeyInput.blur();
     saveKeyBtn.textContent = "Saved!";
     setTimeout(() => (saveKeyBtn.textContent = "Save"), 1500);
@@ -201,90 +157,6 @@ async function callClaude(userMessage, context, signal, attachments) {
   const data = await response.json();
   return data.content[0].text;
 }
-
-// Call Gemini API
-async function callGemini(userMessage, context, signal, attachments) {
-  const geminiKey = HAS_GEMINI_KEY
-    ? BUILD_TIME_GEMINI_KEY
-    : localStorage.getItem("gemini_api_key");
-  if (!geminiKey) throw new Error("No Gemini API key configured.");
-
-  // Build parts array with images + text
-  const parts = [];
-  for (const att of attachments) {
-    if (att.type.startsWith("image/")) {
-      parts.push({ inline_data: { mime_type: att.type, data: att.base64 } });
-    }
-  }
-  parts.push({ text: userMessage });
-
-  const response = await fetch(
-    `${GEMINI_API_URL}/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-    {
-      signal,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: buildSystemPrompt(context) }] },
-        contents: [{ role: "user", parts }],
-        generationConfig: { maxOutputTokens: 1024 },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
-}
-
-// Call Qwen API (DashScope, OpenAI-compatible)
-async function callQwen(userMessage, context, signal, attachments) {
-  const qwenKey = HAS_QWEN_KEY
-    ? BUILD_TIME_QWEN_KEY
-    : localStorage.getItem("qwen_api_key");
-  if (!qwenKey) throw new Error("No Qwen API key configured.");
-
-  // Build content array with images + text
-  const content = [];
-  for (const att of attachments) {
-    if (att.type.startsWith("image/")) {
-      content.push({ type: "image_url", image_url: { url: `data:${att.type};base64,${att.base64}` } });
-    }
-  }
-  content.push({ type: "text", text: userMessage });
-
-  const response = await fetch(QWEN_API_URL, {
-    signal,
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${qwenKey}`,
-    },
-    body: JSON.stringify({
-      model: "qwen-vl-plus",
-      max_tokens: 1024,
-      messages: [
-        { role: "system", content: buildSystemPrompt(context) },
-        { role: "user", content: attachments.length > 0 ? content : userMessage },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-const MODEL_CALLERS = { claude: callClaude, gemini: callGemini, qwen: callQwen };
-const MODEL_ORDER = ["claude", "gemini", "qwen"];
 
 // Build source URL map from chunks: { 1: { path, url }, 2: ... }
 function buildSourceMap(chunks) {
@@ -442,40 +314,17 @@ async function handleSend() {
     }
 
     const context = buildContext(chunks);
-
-    // Try selected model first, then fall back through others
-    const fallbackOrder = [selectedModel, ...MODEL_ORDER.filter((m) => m !== selectedModel)];
-    let answer;
-    let lastErr;
-    for (const model of fallbackOrder) {
-      try {
-        answer = await MODEL_CALLERS[model](query, context, abort.signal, attachments);
-        break;
-      } catch (err) {
-        if (err.name === "AbortError") return;
-        console.warn(`${model} failed:`, err.message);
-        lastErr = err;
-        if (model === selectedModel) {
-          thinkingDiv.querySelector(".message-content").textContent =
-            "Trying backup";
-        }
-      }
-    }
+    const answer = await callClaude(query, context, abort.signal, attachments);
 
     if (abort.signal.aborted) return;
 
     clearInterval(phraseInterval);
     currentThinkingDiv = null;
     thinkingDiv.remove();
-    if (answer) {
-      addMessage("assistant", answer, chunks);
-    } else {
-      console.error("All providers failed:", lastErr?.message);
-      addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
-    }
+    addMessage("assistant", answer, chunks);
   } catch (err) {
     if (err.name === "AbortError" || abort.signal.aborted) return;
-    console.error("Unexpected error:", err.message);
+    console.error("Claude call failed:", err.message);
     clearInterval(phraseInterval);
     currentThinkingDiv = null;
     thinkingDiv.remove();
@@ -511,23 +360,6 @@ themeToggleBtn.addEventListener("click", () => {
   const next = current === "light" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem("theme", next);
-});
-
-// Model selector
-const modelBtns = document.querySelectorAll(".model-btn");
-modelBtns.forEach((btn) => {
-  if (btn.dataset.model === selectedModel) {
-    btn.classList.add("active");
-  } else {
-    btn.classList.remove("active");
-  }
-  btn.addEventListener("click", () => {
-    modelBtns.forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    selectedModel = btn.dataset.model;
-    localStorage.setItem("selected_model", selectedModel);
-    syncKeyUI();
-  });
 });
 
 // File attachments

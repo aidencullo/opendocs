@@ -119,35 +119,6 @@ header h1 {
   gap: 8px;
 }
 
-#model-selector {
-  display: flex;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.model-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.model-btn:hover {
-  color: var(--text);
-  background: var(--border);
-}
-
-.model-btn.active {
-  background: var(--accent);
-  color: white;
-}
-
 .subtitle {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -456,16 +427,6 @@ header h1 {
   text-align: center;
 }
 
-#default-model-note {
-  position: absolute;
-  right: 16px;
-  bottom: 10px;
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  opacity: 0.8;
-  pointer-events: none;
-}
-
 /* Scrollbar */
 #messages::-webkit-scrollbar {
   width: 6px;
@@ -486,8 +447,5 @@ header h1 {
   }
   header h1 {
     font-size: 1.25rem;
-  }
-  #default-model-note {
-    right: 12px;
   }
 }
