@@ -342,7 +342,8 @@ header h1 {
   font-family: inherit;
   resize: none;
   outline: none;
-  max-height: 120px;
+  height: 54px;
+  overflow-y: auto;
 }
 
 #user-input:focus {

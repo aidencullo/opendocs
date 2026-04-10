@@ -308,7 +308,6 @@ async function handleSend() {
   currentAbort = abort;
 
   userInput.value = "";
-  userInput.style.height = "auto";
   sendBtn.disabled = true;
 
   document.getElementById("app").classList.remove("landing");
@@ -412,11 +411,6 @@ userInput.addEventListener("keydown", (e) => {
   }
 });
 
-// Auto-resize textarea
-userInput.addEventListener("input", () => {
-  userInput.style.height = "auto";
-  userInput.style.height = Math.min(userInput.scrollHeight, 120) + "px";
-});
 
 // Theme toggle
 const themeToggleBtn = document.getElementById("theme-toggle");
