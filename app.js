@@ -32,25 +32,59 @@ const messagesEl = document.getElementById("messages");
 const userInput = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const apiKeyInput = document.getElementById("api-key");
+const apiKeyLabel = document.getElementById("api-key-label");
+const apiKeyHint = document.getElementById("api-key-hint");
 const saveKeyBtn = document.getElementById("save-key-btn");
 const statusEl = document.getElementById("index-status");
 
-// Hide the API key prompt entirely when a build-time key was injected.
-if (HAS_BUILD_TIME_KEY) {
+const MODEL_CONFIG = {
+  claude: {
+    storageKey: "anthropic_api_key",
+    label: "Anthropic API Key",
+    placeholder: "sk-ant-...",
+    hint: "Stored in your browser and only sent to Anthropic.",
+    hasBuildTimeKey: HAS_BUILD_TIME_KEY,
+  },
+  gemini: {
+    storageKey: "gemini_api_key",
+    label: "Gemini API Key",
+    placeholder: "AIza...",
+    hint: "Stored in your browser and only sent to Google Gemini.",
+    hasBuildTimeKey: HAS_GEMINI_KEY,
+  },
+  qwen: {
+    storageKey: "qwen_api_key",
+    label: "Qwen API Key",
+    placeholder: "sk-...",
+    hint: "Stored in your browser and only sent to DashScope/Qwen.",
+    hasBuildTimeKey: HAS_QWEN_KEY,
+  },
+};
+
+function syncKeyUI() {
+  const config = MODEL_CONFIG[selectedModel];
   const keySection = document.getElementById("api-key-section");
-  if (keySection) keySection.style.display = "none";
+  if (!config || !keySection) return;
+
+  apiKeyLabel.textContent = config.label;
+  apiKeyInput.placeholder = config.placeholder;
+  apiKeyHint.textContent = config.hasBuildTimeKey
+    ? `${config.label} is already configured for this deployment.`
+    : config.hint;
+  apiKeyInput.value = config.hasBuildTimeKey
+    ? ""
+    : (localStorage.getItem(config.storageKey) || "");
+  keySection.style.display = config.hasBuildTimeKey ? "none" : "block";
 }
 
-// Load API key from localStorage
-const savedKey = localStorage.getItem("anthropic_api_key");
-if (savedKey) {
-  apiKeyInput.value = savedKey;
-}
+syncKeyUI();
 
 saveKeyBtn.addEventListener("click", () => {
   const key = apiKeyInput.value.trim();
+  const config = MODEL_CONFIG[selectedModel];
+  if (!config) return;
   if (key) {
-    localStorage.setItem("anthropic_api_key", key);
+    localStorage.setItem(config.storageKey, key);
     apiKeyInput.blur();
     saveKeyBtn.textContent = "Saved!";
     setTimeout(() => (saveKeyBtn.textContent = "Save"), 1500);
@@ -262,7 +296,12 @@ function buildSourceMap(chunks) {
 
 // Simple markdown rendering
 function renderMarkdown(text, sourceMap) {
-  let result = text
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  let result = escaped
     // Code blocks
     .replace(/```(\w*)\n([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
     // Inline code
@@ -483,6 +522,7 @@ modelBtns.forEach((btn) => {
     btn.classList.add("active");
     selectedModel = btn.dataset.model;
     localStorage.setItem("selected_model", selectedModel);
+    syncKeyUI();
   });
 });
 

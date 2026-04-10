@@ -35,12 +35,12 @@
     </header>
 
     <div id="api-key-section">
-      <label for="api-key">Anthropic API Key</label>
+      <label for="api-key" id="api-key-label">API Key</label>
       <div class="key-input-row">
-        <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+        <input type="password" id="api-key" placeholder="Paste your API key" autocomplete="off">
         <button id="save-key-btn">Save</button>
       </div>
-      <p class="hint">Your key stays in your browser (localStorage). Never sent anywhere except the Anthropic API.</p>
+      <p class="hint" id="api-key-hint">Your key stays in your browser (localStorage) and is only sent to the selected provider.</p>
     </div>
 
     <div id="chat-container" class="centered">
