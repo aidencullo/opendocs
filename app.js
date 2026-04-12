@@ -2,14 +2,10 @@ let searchIndex = null;
 let chunksMap = null;
 let isReady = false;
 
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+// Pollinations is free and requires no API key. OpenAI-compatible endpoint.
+const LLM_API_URL = "https://text.pollinations.ai/openai";
+const LLM_MODEL = "openai";
 const TOP_K = 8;
-
-// Injected at deploy time by the GitHub Actions workflow.
-// Left as the placeholder string locally so nothing secret is committed.
-const BUILD_TIME_API_KEY = "__ANTHROPIC_API_KEY__";
-const HAS_BUILD_TIME_KEY =
-  BUILD_TIME_API_KEY && !BUILD_TIME_API_KEY.startsWith("__");
 
 let currentAbort = null;
 let currentPhraseInterval = null;
@@ -25,31 +21,9 @@ const apiKeyHint = document.getElementById("api-key-hint");
 const saveKeyBtn = document.getElementById("save-key-btn");
 const statusEl = document.getElementById("index-status");
 
-function syncKeyUI() {
-  const keySection = document.getElementById("api-key-section");
-  if (!keySection) return;
-
-  if (HAS_BUILD_TIME_KEY) {
-    keySection.style.display = "none";
-    return;
-  }
-
-  apiKeyHint.textContent = "Stored in your browser and only sent to Anthropic.";
-  apiKeyInput.value = localStorage.getItem("anthropic_api_key") || "";
-  keySection.style.display = "block";
-}
-
-syncKeyUI();
-
-saveKeyBtn.addEventListener("click", () => {
-  const key = apiKeyInput.value.trim();
-  if (key) {
-    localStorage.setItem("anthropic_api_key", key);
-    apiKeyInput.blur();
-    saveKeyBtn.textContent = "Saved!";
-    setTimeout(() => (saveKeyBtn.textContent = "Save"), 1500);
-  }
-});
+// Pollinations needs no key — hide the API key UI entirely.
+const keySection = document.getElementById("api-key-section");
+if (keySection) keySection.style.display = "none";
 
 // Load search index and chunks
 async function loadIndex() {
@@ -116,46 +90,39 @@ Documentation context:
 ${context}`;
 }
 
-// Call Anthropic API
-async function callClaude(userMessage, context, signal, attachments) {
-  const apiKey = HAS_BUILD_TIME_KEY
-    ? BUILD_TIME_API_KEY
-    : localStorage.getItem("anthropic_api_key");
-  if (!apiKey) throw new Error("No Claude API key configured.");
-
-  // Build content array with text + images
-  const content = [];
+// Call Pollinations (OpenAI-compatible, free, no key required)
+async function callLLM(userMessage, context, signal, attachments) {
+  // OpenAI-format content array: text + images via image_url
+  const content = [{ type: "text", text: userMessage }];
   for (const att of attachments) {
     if (att.type.startsWith("image/")) {
-      content.push({ type: "image", source: { type: "base64", media_type: att.type, data: att.base64 } });
+      content.push({
+        type: "image_url",
+        image_url: { url: att.dataUrl },
+      });
     }
   }
-  content.push({ type: "text", text: userMessage });
 
-  const response = await fetch(ANTHROPIC_API_URL, {
+  const response = await fetch(LLM_API_URL, {
     signal,
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-3-5-haiku-20241022",
-      max_tokens: 1024,
-      system: buildSystemPrompt(context),
-      messages: [{ role: "user", content }],
+      model: LLM_MODEL,
+      messages: [
+        { role: "system", content: buildSystemPrompt(context) },
+        { role: "user", content },
+      ],
     }),
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API error: ${response.status}`);
+    const err = await response.text().catch(() => "");
+    throw new Error(`API error: ${response.status} ${err}`);
   }
 
   const data = await response.json();
-  return data.content[0].text;
+  return data.choices[0].message.content;
 }
 
 // Build source URL map from chunks: { 1: { path, url }, 2: ... }
@@ -314,7 +281,7 @@ async function handleSend() {
     }
 
     const context = buildContext(chunks);
-    const answer = await callClaude(query, context, abort.signal, attachments);
+    const answer = await callLLM(query, context, abort.signal, attachments);
 
     if (abort.signal.aborted) return;
 
