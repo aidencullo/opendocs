@@ -25,6 +25,20 @@ const statusEl = document.getElementById("index-status");
 const keySection = document.getElementById("api-key-section");
 if (keySection) keySection.style.display = "none";
 
+// Session usage tracking (Pollinations is keyless, so no server-side dashboard —
+// we accumulate tokens and request counts client-side for the bottom-right badge).
+const usage = { requests: 0, tokens: 0, model: "—" };
+const usageModelEl = document.getElementById("usage-model");
+const usageRequestsEl = document.getElementById("usage-requests");
+const usageTokensEl = document.getElementById("usage-tokens");
+
+function renderUsage() {
+  usageModelEl.textContent = usage.model;
+  usageRequestsEl.textContent = usage.requests;
+  usageTokensEl.textContent = usage.tokens;
+}
+renderUsage();
+
 // Load search index and chunks
 async function loadIndex() {
   try {
@@ -122,6 +136,13 @@ async function callLLM(userMessage, context, signal, attachments) {
   }
 
   const data = await response.json();
+
+  // Update session usage badge with the model + token counts from this response.
+  if (data.model) usage.model = data.model;
+  if (data.usage?.total_tokens) usage.tokens += data.usage.total_tokens;
+  usage.requests += 1;
+  renderUsage();
+
   return data.choices[0].message.content;
 }
 
