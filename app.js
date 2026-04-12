@@ -6,6 +6,7 @@ let isReady = false;
 const LLM_API_URL = "https://text.pollinations.ai/openai";
 const LLM_MODEL = "openai";
 const TOP_K = 8;
+const LLM_TIMEOUT_MS = 30000;
 
 let currentAbort = null;
 let currentPhraseInterval = null;
@@ -65,14 +66,70 @@ async function loadIndex() {
 function retrieveContext(query) {
   if (!searchIndex || !chunksMap) return [];
 
-  const results = searchIndex.search(query);
-  const topResults = results.slice(0, TOP_K);
+  const resultMap = new Map();
 
-  return topResults.map((r) => ({
-    id: r.ref,
-    score: r.score,
-    ...chunksMap[r.ref],
-  })).filter((r) => r.content);
+  function addResult(ref, score) {
+    const chunk = chunksMap[ref];
+    if (!chunk?.content) return;
+    const existing = resultMap.get(ref);
+    if (!existing || score > existing.score) {
+      resultMap.set(ref, { id: ref, score, ...chunk });
+    }
+  }
+
+  function addSearchResults(searchQuery, multiplier = 1) {
+    try {
+      searchIndex.search(searchQuery).forEach((r) => addResult(r.ref, r.score * multiplier));
+    } catch (err) {
+      console.warn("Search query failed:", searchQuery, err);
+    }
+  }
+
+  function sectionFromRef(ref) {
+    const match = ref.match(/#(\d+)$/);
+    return match ? Number(match[1]) : 0;
+  }
+
+  addSearchResults(query, 1);
+
+  const normalized = query.toLowerCase();
+  const modelIntent =
+    /\b(model|models|provider|providers|llama|ollama|openrouter|groq|mistral)\b/.test(normalized);
+
+  if (modelIntent) {
+    addSearchResults("model providers ollama openrouter models set onboard", 0.9);
+
+    const pathBoosts = {
+      "providers/models.md": 40,
+      "cli/models.md": 38,
+      "cli/onboard.md": 34,
+      "providers/ollama.md": /\b(llama|ollama|local)\b/.test(normalized) ? 39 : 35,
+      "providers/openrouter.md": /\b(llama|openrouter|hosted|cloud)\b/.test(normalized) ? 37 : 33,
+    };
+
+    for (const [ref, chunk] of Object.entries(chunksMap)) {
+      const boost = pathBoosts[chunk.path];
+      if (boost) {
+        addResult(ref, boost - sectionFromRef(ref) / 10);
+      }
+    }
+  }
+
+  const ranked = [...resultMap.values()].sort((a, b) => b.score - a.score);
+
+  if (modelIntent) {
+    const pathCounts = {};
+    const diversified = [];
+    for (const result of ranked) {
+      pathCounts[result.path] = pathCounts[result.path] || 0;
+      if (pathCounts[result.path] >= 2) continue;
+      diversified.push(result);
+      pathCounts[result.path] += 1;
+      if (diversified.length === TOP_K) return diversified;
+    }
+  }
+
+  return ranked.slice(0, TOP_K);
 }
 
 // Format retrieved chunks into context string
@@ -117,18 +174,38 @@ async function callLLM(userMessage, context, signal, attachments) {
     }
   }
 
-  const response = await fetch(LLM_API_URL, {
-    signal,
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      messages: [
-        { role: "system", content: buildSystemPrompt(context) },
-        { role: "user", content },
-      ],
-    }),
-  });
+  const requestAbort = new AbortController();
+  let didTimeout = false;
+  const timeout = setTimeout(() => {
+    didTimeout = true;
+    requestAbort.abort();
+  }, LLM_TIMEOUT_MS);
+  const abortRequest = () => requestAbort.abort();
+  signal.addEventListener("abort", abortRequest, { once: true });
+
+  let response;
+  try {
+    response = await fetch(LLM_API_URL, {
+      signal: requestAbort.signal,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        messages: [
+          { role: "system", content: buildSystemPrompt(context) },
+          { role: "user", content },
+        ],
+      }),
+    });
+  } catch (err) {
+    if (didTimeout) {
+      throw new Error("The model request timed out after 30 seconds. Please try again.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", abortRequest);
+  }
 
   if (!response.ok) {
     const err = await response.text().catch(() => "");
@@ -136,6 +213,10 @@ async function callLLM(userMessage, context, signal, attachments) {
   }
 
   const data = await response.json();
+
+  if (!data.choices?.[0]?.message?.content) {
+    throw new Error("API response did not include an assistant message.");
+  }
 
   // Update session usage badge with the model + token counts from this response.
   if (data.model) usage.model = data.model;
@@ -260,29 +341,22 @@ async function handleSend() {
   }
   addMessage("user", userHtml);
 
-  // Show thinking indicator with quotes fetched from API
+  // Show thinking indicator without depending on another external API.
   currentThinkingDiv = addMessage("assistant", "Thinking...");
   const thinkingDiv = currentThinkingDiv;
   const thinkingContent = thinkingDiv.querySelector(".message-content");
   thinkingContent.classList.add("thinking");
 
-  async function fetchQuote() {
-    try {
-      const res = await fetch("https://api.quotable.io/quotes/random?limit=1");
-      if (!res.ok) return null;
-      const data = await res.json();
-      return `${data[0].content} — ${data[0].author}`;
-    } catch {
-      return null;
-    }
-  }
-
-  // Show first quote immediately
-  fetchQuote().then((q) => { if (q && !abort.signal.aborted) thinkingContent.textContent = q; });
-
-  currentPhraseInterval = setInterval(async () => {
-    const q = await fetchQuote();
-    if (q && !abort.signal.aborted) thinkingContent.textContent = q;
+  const thinkingPhrases = [
+    "Finding the closest docs...",
+    "Checking the relevant OpenClaw pages...",
+    "Asking the model...",
+  ];
+  let phraseIndex = 0;
+  thinkingContent.textContent = thinkingPhrases[phraseIndex];
+  currentPhraseInterval = setInterval(() => {
+    phraseIndex = (phraseIndex + 1) % thinkingPhrases.length;
+    if (!abort.signal.aborted) thinkingContent.textContent = thinkingPhrases[phraseIndex];
   }, 4000);
   const phraseInterval = currentPhraseInterval;
 
@@ -312,11 +386,11 @@ async function handleSend() {
     addMessage("assistant", answer, chunks);
   } catch (err) {
     if (err.name === "AbortError" || abort.signal.aborted) return;
-    console.error("Claude call failed:", err.message);
+    console.error("Model call failed:", err.message);
     clearInterval(phraseInterval);
     currentThinkingDiv = null;
     thinkingDiv.remove();
-    addMessage("assistant", "Service is temporarily unavailable. Please check back later.");
+    addMessage("assistant", err.message || "Service is temporarily unavailable. Please check back later.");
   }
 
   currentAbort = null;
