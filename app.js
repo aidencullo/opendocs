@@ -2,10 +2,11 @@ let searchIndex = null;
 let chunksMap = null;
 let isReady = false;
 
-// Pollinations is free and requires no API key. OpenAI-compatible endpoint.
-const LLM_API_URL = "https://text.pollinations.ai/openai";
-const LLM_MODEL = "openai";
+const APP_API_URL = window.OPENDOCS_API_URL || "/api/chat";
+const FALLBACK_LLM_API_URL = "https://text.pollinations.ai/openai";
+const FALLBACK_LLM_MODEL = "openai";
 const TOP_K = 8;
+const CANDIDATE_K = 24;
 const LLM_TIMEOUT_MS = 30000;
 
 let currentAbort = null;
@@ -22,12 +23,11 @@ const apiKeyHint = document.getElementById("api-key-hint");
 const saveKeyBtn = document.getElementById("save-key-btn");
 const statusEl = document.getElementById("index-status");
 
-// Pollinations needs no key — hide the API key UI entirely.
+// Keys live server-side in the upgraded API route; hide the old browser key UI.
 const keySection = document.getElementById("api-key-section");
 if (keySection) keySection.style.display = "none";
 
-// Session usage tracking (Pollinations is keyless, so no server-side dashboard —
-// we accumulate tokens and request counts client-side for the bottom-right badge).
+// Session usage tracking for this browser session.
 const usage = { requests: 0, tokens: 0, model: "—" };
 const usageModelEl = document.getElementById("usage-model");
 const usageRequestsEl = document.getElementById("usage-requests");
@@ -63,7 +63,7 @@ async function loadIndex() {
 }
 
 // Search for relevant chunks
-function retrieveContext(query) {
+function retrieveContext(query, limit = TOP_K) {
   if (!searchIndex || !chunksMap) return [];
 
   const resultMap = new Map();
@@ -125,11 +125,12 @@ function retrieveContext(query) {
       if (pathCounts[result.path] >= 2) continue;
       diversified.push(result);
       pathCounts[result.path] += 1;
-      if (diversified.length === TOP_K) return diversified;
+      if (diversified.length === limit) return diversified;
     }
+    if (diversified.length > 0) return diversified;
   }
 
-  return ranked.slice(0, TOP_K);
+  return ranked.slice(0, limit);
 }
 
 // Format retrieved chunks into context string
@@ -161,19 +162,22 @@ Documentation context:
 ${context}`;
 }
 
-// Call Pollinations (OpenAI-compatible, free, no key required)
-async function callLLM(userMessage, context, signal, attachments) {
+function buildContentParts(userMessage, attachments, imageType) {
   // OpenAI-format content array: text + images via image_url
-  const content = [{ type: "text", text: userMessage }];
+  const content = [{ type: imageType === "input_image" ? "input_text" : "text", text: userMessage }];
   for (const att of attachments) {
     if (att.type.startsWith("image/")) {
-      content.push({
-        type: "image_url",
-        image_url: { url: att.dataUrl },
-      });
+      if (imageType === "input_image") {
+        content.push({ type: "input_image", image_url: att.dataUrl });
+      } else {
+        content.push({ type: "image_url", image_url: { url: att.dataUrl } });
+      }
     }
   }
+  return content;
+}
 
+async function fetchWithTimeout(url, options, signal) {
   const requestAbort = new AbortController();
   let didTimeout = false;
   const timeout = setTimeout(() => {
@@ -185,18 +189,7 @@ async function callLLM(userMessage, context, signal, attachments) {
 
   let response;
   try {
-    response = await fetch(LLM_API_URL, {
-      signal: requestAbort.signal,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        messages: [
-          { role: "system", content: buildSystemPrompt(context) },
-          { role: "user", content },
-        ],
-      }),
-    });
+    response = await fetch(url, { ...options, signal: requestAbort.signal });
   } catch (err) {
     if (didTimeout) {
       throw new Error("The model request timed out after 30 seconds. Please try again.");
@@ -206,6 +199,75 @@ async function callLLM(userMessage, context, signal, attachments) {
     clearTimeout(timeout);
     signal.removeEventListener("abort", abortRequest);
   }
+
+  return response;
+}
+
+function applyUsage(data) {
+  if (data.model) usage.model = data.model;
+  if (data.usage?.total_tokens) usage.tokens += data.usage.total_tokens;
+  if (data.usage?.totalTokens) usage.tokens += data.usage.totalTokens;
+  usage.requests += 1;
+  renderUsage();
+}
+
+async function callAppBackend(userMessage, candidates, signal, attachments) {
+  const response = await fetchWithTimeout(
+    APP_API_URL,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: userMessage,
+        candidates,
+        attachments: attachments
+          .filter((att) => att.type.startsWith("image/"))
+          .map((att) => ({ name: att.name, type: att.type, dataUrl: att.dataUrl })),
+      }),
+    },
+    signal
+  );
+
+  if (response.status === 404 || response.status === 405) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const err = await response.text().catch(() => "");
+    throw new Error(`API error: ${response.status} ${err}`);
+  }
+
+  const data = await response.json();
+
+  if (!data.answer) {
+    throw new Error("API response did not include an assistant message.");
+  }
+
+  applyUsage(data);
+  return {
+    answer: data.answer,
+    sources: data.sources?.length ? data.sources : candidates.slice(0, TOP_K),
+  };
+}
+
+async function callFallbackLLM(userMessage, context, signal, attachments) {
+  const content = buildContentParts(userMessage, attachments, "image_url");
+
+  const response = await fetchWithTimeout(
+    FALLBACK_LLM_API_URL,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: FALLBACK_LLM_MODEL,
+        messages: [
+          { role: "system", content: buildSystemPrompt(context) },
+          { role: "user", content },
+        ],
+      }),
+    },
+    signal
+  );
 
   if (!response.ok) {
     const err = await response.text().catch(() => "");
@@ -218,13 +280,20 @@ async function callLLM(userMessage, context, signal, attachments) {
     throw new Error("API response did not include an assistant message.");
   }
 
-  // Update session usage badge with the model + token counts from this response.
-  if (data.model) usage.model = data.model;
-  if (data.usage?.total_tokens) usage.tokens += data.usage.total_tokens;
-  usage.requests += 1;
-  renderUsage();
+  applyUsage(data);
+  return { answer: data.choices[0].message.content, sources: null };
+}
 
-  return data.choices[0].message.content;
+async function callLLM(userMessage, candidates, signal, attachments) {
+  try {
+    const backendResult = await callAppBackend(userMessage, candidates, signal, attachments);
+    if (backendResult) return backendResult;
+  } catch (err) {
+    if (!String(err.message || "").includes("Failed to fetch")) throw err;
+    console.warn("App backend unavailable; falling back to public endpoint.", err);
+  }
+
+  return callFallbackLLM(userMessage, buildContext(candidates.slice(0, TOP_K)), signal, attachments);
 }
 
 // Build source URL map from chunks: { 1: { path, url }, 2: ... }
@@ -362,7 +431,7 @@ async function handleSend() {
 
   try {
     // Retrieve relevant chunks
-    const chunks = retrieveContext(query);
+    const chunks = retrieveContext(query, CANDIDATE_K);
 
     if (chunks.length === 0) {
       clearInterval(phraseInterval);
@@ -375,15 +444,14 @@ async function handleSend() {
       return;
     }
 
-    const context = buildContext(chunks);
-    const answer = await callLLM(query, context, abort.signal, attachments);
+    const result = await callLLM(query, chunks, abort.signal, attachments);
 
     if (abort.signal.aborted) return;
 
     clearInterval(phraseInterval);
     currentThinkingDiv = null;
     thinkingDiv.remove();
-    addMessage("assistant", answer, chunks);
+    addMessage("assistant", result.answer, result.sources || chunks.slice(0, TOP_K));
   } catch (err) {
     if (err.name === "AbortError" || abort.signal.aborted) return;
     console.error("Model call failed:", err.message);
