@@ -13,6 +13,9 @@ let currentAbort = null;
 let currentPhraseInterval = null;
 let currentThinkingDiv = null;
 let pendingAttachments = []; // { name, type, base64, dataUrl }
+let pendingAttachmentLoad = Promise.resolve();
+let pendingAttachmentBatches = 0;
+let isSending = false;
 
 // DOM elements
 const messagesEl = document.getElementById("messages");
@@ -376,8 +379,18 @@ function addMessage(role, content, sources = null) {
 
 // Handle send
 async function handleSend() {
+  if (isSending) return;
+  if (!isReady) return;
+  isSending = true;
+  await pendingAttachmentLoad;
+
   const query = userInput.value.trim();
-  if (!query || !isReady) return;
+  const hasAttachments = pendingAttachments.length > 0;
+  if (!query && !hasAttachments) {
+    isSending = false;
+    return;
+  }
+  const effectiveQuery = query || "Please analyze this image and help me with OpenClaw.";
 
   // Cancel any in-flight request
   if (currentAbort) {
@@ -400,13 +413,13 @@ async function handleSend() {
   document.getElementById("chat-container").classList.remove("centered");
 
   // Show user message with image previews
-  let userHtml = query;
+  let userHtml = query || "[Image]";
   if (attachments.length > 0) {
     const imgs = attachments
       .filter((a) => a.type.startsWith("image/"))
       .map((a) => `![${a.name}](${a.dataUrl})`)
       .join("\n");
-    if (imgs) userHtml = imgs + "\n\n" + query;
+    if (imgs) userHtml = query ? `${imgs}\n\n${query}` : imgs;
   }
   addMessage("user", userHtml);
 
@@ -431,20 +444,9 @@ async function handleSend() {
 
   try {
     // Retrieve relevant chunks
-    const chunks = retrieveContext(query, CANDIDATE_K);
+    const chunks = retrieveContext(effectiveQuery, CANDIDATE_K);
 
-    if (chunks.length === 0) {
-      clearInterval(phraseInterval);
-      thinkingDiv.remove();
-      addMessage(
-        "assistant",
-        "I couldn't find any relevant documentation for that query. Try rephrasing or asking about a specific OpenClaw feature."
-      );
-      sendBtn.disabled = false;
-      return;
-    }
-
-    const result = await callLLM(query, chunks, abort.signal, attachments);
+    const result = await callLLM(effectiveQuery, chunks, abort.signal, attachments);
 
     if (abort.signal.aborted) return;
 
@@ -459,6 +461,8 @@ async function handleSend() {
     currentThinkingDiv = null;
     thinkingDiv.remove();
     addMessage("assistant", err.message || "Service is temporarily unavailable. Please check back later.");
+  } finally {
+    isSending = false;
   }
 
   currentAbort = null;
@@ -474,6 +478,18 @@ userInput.addEventListener("keydown", (e) => {
     e.preventDefault();
     handleSend();
   }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+  if (e.target === userInput || document.activeElement === userInput) return;
+  const hasSendableInput =
+    userInput.value.trim().length > 0 ||
+    pendingAttachments.length > 0 ||
+    pendingAttachmentBatches > 0;
+  if (!hasSendableInput) return;
+  e.preventDefault();
+  handleSend();
 });
 
 
@@ -536,9 +552,25 @@ async function addFiles(files) {
   }
 }
 
+function queueAttachmentLoad(files) {
+  const list = [...files];
+  pendingAttachmentBatches += 1;
+  pendingAttachmentLoad = pendingAttachmentLoad
+    .then(() => addFiles(list))
+    .catch((err) => {
+      console.error("Failed to load attachment:", err);
+    })
+    .finally(() => {
+      pendingAttachmentBatches = Math.max(0, pendingAttachmentBatches - 1);
+    });
+  return pendingAttachmentLoad;
+}
+
 attachBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
-  if (fileInput.files.length) addFiles(fileInput.files);
+  if (fileInput.files.length) {
+    queueAttachmentLoad(fileInput.files);
+  }
   fileInput.value = "";
 });
 
@@ -555,7 +587,9 @@ inputArea.addEventListener("dragleave", () => {
 inputArea.addEventListener("drop", (e) => {
   e.preventDefault();
   inputArea.classList.remove("drag-over");
-  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  if (e.dataTransfer.files.length) {
+    queueAttachmentLoad(e.dataTransfer.files);
+  }
 });
 
 // Also support paste
@@ -563,7 +597,8 @@ userInput.addEventListener("paste", (e) => {
   const files = [...(e.clipboardData?.files || [])];
   if (files.length) {
     e.preventDefault();
-    addFiles(files);
+    queueAttachmentLoad(files);
+    userInput.focus();
   }
 });
 
